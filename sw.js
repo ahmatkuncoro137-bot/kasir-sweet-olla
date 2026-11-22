@@ -1,5 +1,5 @@
 /* Kasir Sweet Olla — cache aplikasi untuk dipakai tanpa internet */
-const CACHE = "kasir-sweet-olla-v2";
+const CACHE = "kasir-sweet-olla-v3";
 const PRECACHE = [
   "./",
   "./index.html",

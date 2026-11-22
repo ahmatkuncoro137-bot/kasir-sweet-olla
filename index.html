@@ -211,6 +211,13 @@ table.data .acts{white-space:nowrap;text-align:right}
 #modal-bg{align-items:center}
 .modal{background:#fff;border-radius:22px;padding:20px;width:min(520px,calc(100% - 24px));max-height:min(90vh,820px);overflow:auto;box-shadow:0 20px 50px rgba(58,16,40,.2)}
 .modal h2{margin-bottom:12px;font-size:20px}
+.qris-prev{display:block;width:100%;max-width:260px;margin:6px auto 10px;border-radius:14px;border:2px solid #F8BBD0;background:#fff;padding:8px;image-rendering:auto}
+.qris-empty{border:2px dashed #F8BBD0;border-radius:16px;padding:18px;text-align:center;background:#FFF0F6;color:var(--muted);margin-bottom:10px}
+.qris-modal{text-align:center}
+.qris-modal .qris-img{display:block;width:100%;max-width:min(420px,78vw);max-height:56vh;object-fit:contain;margin:4px auto 10px;border-radius:16px;border:3px solid var(--accent);background:#fff;padding:8px}
+.qris-modal .qris-total{font-size:34px;font-weight:900;color:var(--accent2);letter-spacing:.5px;margin:2px 0 4px}
+.qris-modal .qris-lbl{font-size:14px;color:var(--muted);font-weight:700}
+.qris-hint{background:#FFF0F6;border:1px solid #F8BBD0;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:14px}
 .sheet{background:#fff;border-radius:22px 22px 0 0;padding:12px 16px calc(16px + var(--safe-b));width:100%;max-width:640px;max-height:86vh;overflow:auto}
 .sheet .handle{width:40px;height:5px;background:var(--rose2);border-radius:99px;margin:4px auto 14px}
 .sheet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -284,6 +291,7 @@ table.data .acts{white-space:nowrap;text-align:right}
 }
 @media (max-width:767px){
   .g2,.g3,.g4{grid-template-columns:1fr 1fr}
+  #view.page-pengaturan > .grid.g2{grid-template-columns:1fr}
   .quick{grid-template-columns:repeat(2,1fr)}
   .desk-only{display:none!important}
   .mlist{display:flex}
@@ -574,6 +582,7 @@ body.print-laporan #print-report{display:block}
         namaPemilik: "",
         alamat: "",
         telepon: "",
+        qrisImg: "",
         footerStruk: "Terima kasih sudah belanja di Sweet Olla. Datang lagi ya, semoga harimu manis 🌸",
         saldoKasAwal: 0,
         autoKunciMenit: 5,
@@ -1260,7 +1269,9 @@ body.print-laporan #print-report{display:block}
         <div id="payExtra">${ui.cartPay==="tunai"?`<div class="field"><label>Uang diterima</label><input id="cartBayar" type="number" min="0" value="${esc(ui.cartBayar)}" placeholder="0">
             <div class="muted small">Kembali: <b>${rp(kembali)}</b></div></div>`:
             ui.cartPay==="kasbon"?`<div class="field"><label>Jatuh tempo</label><input id="cartDue" type="date" value="${esc(ui.cartDue||"")}"></div>
-            <p class="muted small">Pilih nama pelanggan di atas. Bisa dibayar nanti di menu Kasbon.</p>`:""}</div>
+            <p class="muted small">Pilih nama pelanggan di atas. Bisa dibayar nanti di menu Kasbon.</p>`:
+            ui.cartPay==="qris"?(db.settings.qrisImg?`<div class="qris-hint">Saat tekan <b>Bayar</b>, gambar QRIS toko muncul besar untuk di-scan pembeli.</div>`:
+              `<div class="qris-hint">Gambar QRIS toko belum dipasang. <button class="btn sm sec" style="margin-top:6px" data-act="go-pengaturan">Pasang QRIS di Pengaturan</button></div>`):""}</div>
         <button class="btn lg" data-act="checkout" ${cart.length?"":"disabled"}>${ico("check")} Bayar & cetak struk</button>
         ${cart.length?`<button class="btn sec block" style="margin-top:8px" data-act="clearcart">Kosongkan keranjang</button>`:""}
       </div>
@@ -1579,6 +1590,17 @@ body.print-laporan #print-report{display:block}
               <button class="btn danger sm" data-act="putus-printer">Putuskan</button>`:""}`:""}
           </div>
           ${help}
+        </div>
+        <div class="card" style="margin-bottom:14px" id="qris-card">
+          <h3>QRIS Toko</h3>
+          <p class="muted small">Pasang gambar QRIS toko (foto/screenshot dari bank atau e-wallet). Saat bayar pakai QRIS, gambar ini muncul besar di kasir. Uangnya tetap langsung masuk ke rekening toko.</p>
+          ${s.qrisImg?`<img class="qris-prev" id="qris-prev" src="${s.qrisImg}" alt="QRIS toko">
+          <div class="row">
+            <button class="btn sec grow" data-act="qris-pilih">${ico("up")} Ganti</button>
+            <button class="btn danger grow" data-act="qris-hapus">Hapus</button>
+          </div>`:`<div class="qris-empty">Belum ada gambar QRIS</div>
+          <button class="btn block" data-act="qris-pilih">${ico("up")} Upload gambar QRIS</button>`}
+          <input id="qris-file" type="file" accept="image/*" class="hide">
         </div>
         <div class="card" style="margin-bottom:14px">
           <h3>PIN kunci layar</h3>
@@ -1970,7 +1992,7 @@ body.print-laporan #print-report{display:block}
     save(); closeModal(); toast("Retur beli disimpan. Stok berkurang.","ok"); render();
   }
 
-  function checkout(){
+  function checkout(qrisOk){
     if(!ui.cart.length) return;
     const sub=ui.cart.reduce((s,i)=>s+i.qty*i.hargaJual,0);
     const disc=Number(ui.cartDisc)||0;
@@ -1987,6 +2009,8 @@ body.print-laporan #print-report{display:block}
       const p=prod(it.productId);
       if(!p || p.stok<it.qty) return toast("Stok "+it.nama+" tidak cukup","err");
     }
+    if(metode==="qris" && qrisOk!==true) return showQrisPay(total);
+    closeModal();
     const sale={
       id:uid("s"), no:nextNo("PJ",db.sales), tanggal:today(), waktu:nowIso(),
       customerId:ui.cartCust||"", items:ui.cart.map(i=>({productId:i.productId,nama:i.nama,qty:i.qty,hargaJual:i.hargaJual,hargaBeli:i.hargaBeli||0,disc:0})),
@@ -2008,6 +2032,56 @@ body.print-laporan #print-report{display:block}
         <button class="btn grow" data-act="cetak-struk" data-id="${sale.id}">${ico("print")} Cetak struk</button>
         <button class="btn sec grow" data-act="close-modal">Selesai</button>
       </div>`);
+  }
+
+  /* ---------- QRIS ---------- */
+  function showQrisPay(total){
+    const img=db.settings.qrisImg;
+    if(!img){
+      openModal(`<div class="qris-modal"><h2>QRIS belum dipasang</h2>
+        <p style="margin:0 0 14px;color:var(--muted)">Gambar QRIS toko belum di-upload. Pasang dulu di menu Pengaturan, nanti otomatis muncul di sini saat pembeli bayar pakai QRIS.</p>
+        <div class="row"><button class="btn sec grow" data-act="close-modal">Batal</button>
+        <button class="btn grow" data-act="go-pengaturan">Ke Pengaturan</button></div></div>`);
+      return;
+    }
+    openModal(`<div class="qris-modal"><h2>Scan QRIS untuk bayar</h2>
+      <img class="qris-img" src="${img}" alt="QRIS toko">
+      <div class="qris-lbl">Total yang harus dibayar</div>
+      <div class="qris-total">${rp(total)}</div>
+      <p class="muted small" style="margin:0 0 12px">Cek dulu notifikasi uang masuk di HP/aplikasi bank sebelum tekan “Sudah dibayar”.</p>
+      <div class="row"><button class="btn sec grow" data-act="close-modal">Batal</button>
+      <button class="btn grow" data-act="qris-lunas">${ico("check")} Sudah dibayar</button></div></div>`);
+  }
+  function loadImg(file){
+    return new Promise((res,rej)=>{
+      const url=URL.createObjectURL(file); const im=new Image();
+      im.onload=()=>{ res({im,url}); };
+      im.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error("gambar")); };
+      im.src=url;
+    });
+  }
+  async function uploadQris(file){
+    if(!file) return;
+    if(!/^image\//.test(file.type||"image/")) return toast("Pilih file gambar ya","err");
+    try{
+      const {im,url}=await loadImg(file);
+      const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
+      const sc=Math.min(1, 800/Math.max(W,H));
+      const w=Math.max(1,Math.round(W*sc)), h=Math.max(1,Math.round(H*sc));
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      const g=c.getContext("2d");
+      g.fillStyle="#fff"; g.fillRect(0,0,w,h);
+      g.imageSmoothingEnabled=true; g.imageSmoothingQuality="high";
+      g.drawImage(im,0,0,w,h);
+      URL.revokeObjectURL(url);
+      let data=c.toDataURL("image/png");
+      if(data.length>450000) data=c.toDataURL("image/jpeg",0.95);
+      const old=db.settings.qrisImg||"";
+      db.settings.qrisImg=data;
+      try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+      catch(e){ db.settings.qrisImg=old; return toast("Penyimpanan HP penuh. Coba gambar lain yang lebih kecil.","err"); }
+      toast("Gambar QRIS tersimpan","ok"); render();
+    }catch(e){ toast("Gambar tidak bisa dibaca. Coba foto/screenshot lain.","err"); }
   }
 
   function exportAsetCsv(){
@@ -2077,6 +2151,13 @@ body.print-laporan #print-report{display:block}
     else if(act==="qty") changeQty(el.dataset.id, Number(el.dataset.d));
     else if(act==="clearcart"){ ui.cart=[]; render(); }
     else if(act==="checkout") checkout();
+    else if(act==="qris-lunas") checkout(true);
+    else if(act==="go-pengaturan") go("pengaturan");
+    else if(act==="qris-pilih") $("#qris-file")?.click();
+    else if(act==="qris-hapus"){
+      const ok=await confirmAct("Hapus gambar QRIS?","Gambar QRIS toko akan dihapus dari aplikasi. Bisa di-upload lagi kapan saja.","Ya, hapus");
+      if(ok){ db.settings.qrisImg=""; save(); toast("Gambar QRIS dihapus","ok"); render(); }
+    }
     else if(act==="jump-cart"){ document.querySelector(".cart")?.scrollIntoView({behavior:"smooth",block:"start"}); }
     else if(act==="go-barang") go("barang");
     else if(act==="edit-prod") formProduk(el.dataset.id||"");
@@ -2351,6 +2432,7 @@ body.print-laporan #print-report{display:block}
     // restore file input lives in settings page — bind globally via change on document
     document.addEventListener("change", e=>{
       if(e.target.id==="restore-file" && e.target.files?.[0]){ doRestore(e.target.files[0]); e.target.value=""; }
+      if(e.target.id==="qris-file" && e.target.files?.[0]){ const f=e.target.files[0]; e.target.value=""; uploadQris(f); }
     });
 
     // expose a tiny test hook (used by headless checks, not shown in UI)
